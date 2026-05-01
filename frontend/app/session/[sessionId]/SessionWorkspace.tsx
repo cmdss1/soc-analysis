@@ -420,8 +420,7 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
           </div>
           {view === "live" && rec?.kasm_viewer_url && embedSupported === true ? (
             <div className="rep-shot-foot">
-              Embedded with <code>credentialless</code> (no Kasm cookies — JWT only).
-              Problems?{" "}
+              Embedded with <code>credentialless</code> — URL is assigned only after that flag is set (Chrome timing requirement). Still broken? Hard-refresh (Ctrl+Shift+R) or{" "}
               <a href={rec.kasm_viewer_url} target="_blank" rel="noreferrer">
                 Open in new tab
               </a>
