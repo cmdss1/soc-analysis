@@ -46,9 +46,13 @@ trap cleanup EXIT INT TERM
 wait_port "$MITM_PORT" || echo "[kasm-mitm] WARN: mitm port not accepting connections yet"
 
 if wait_ca; then
-  echo "[kasm-mitm] Installing MITM CA into system trust store..."
-  cp "${MITM_CONF}/mitmproxy-ca-cert.pem" /usr/local/share/ca-certificates/soc-mitm.crt 2>/dev/null || true
-  update-ca-certificates 2>/dev/null || true
+  if [[ $(id -u) -eq 0 ]]; then
+    echo "[kasm-mitm] Installing MITM CA into system trust store..."
+    cp "${MITM_CONF}/mitmproxy-ca-cert.pem" /usr/local/share/ca-certificates/soc-mitm.crt 2>/dev/null || true
+    update-ca-certificates 2>/dev/null || true
+  else
+    echo "[kasm-mitm] MITM CA at ${MITM_CONF}/mitmproxy-ca-cert.pem (system CA install skipped for UID $(id -u); Chrome policy still uses proxy)."
+  fi
 else
   echo "[kasm-mitm] WARN: mitmproxy CA not found; TLS interception may warn in-browser"
 fi

@@ -23,8 +23,9 @@ RUN apt-get update \
 
 RUN mkdir -p /etc/opt/chrome/policies/managed \
     /etc/chromium/policies/managed \
-    /etc/mitmproxy/conf \
-    /opt/soc
+    /opt/soc \
+    /home/kasm-user/.mitmproxy \
+    && chown -R 1000:0 /home/kasm-user/.mitmproxy
 
 COPY chrome-policies/managed/mitm-proxy.json /etc/opt/chrome/policies/managed/mitm-proxy.json
 COPY chrome-policies/managed/mitm-proxy.json /etc/chromium/policies/managed/mitm-proxy.json
@@ -34,7 +35,10 @@ COPY entrypoint.sh /usr/local/bin/kasm-mitm-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/kasm-mitm-entrypoint.sh /opt/soc/mitm_addon.py
 
+# Writable by kasm-user (UID 1000). Stock kasmweb/chrome never runs workspace sessions as root.
 ENV MITM_LISTEN_PORT=8080 \
-    MITM_CONFDIR=/etc/mitmproxy/conf
+    MITM_CONFDIR=/home/kasm-user/.mitmproxy
+
+USER 1000
 
 ENTRYPOINT ["/usr/local/bin/kasm-mitm-entrypoint.sh"]
