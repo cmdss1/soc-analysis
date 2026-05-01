@@ -6,6 +6,7 @@ import {
   destroySandboxSession,
   eventsUrl,
   fetchSession,
+  finalizeSandboxSession,
   screenshotUrl,
   type SandboxRecord,
 } from "@/lib/api";
@@ -127,6 +128,7 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const [tab, setTab] = useState<"hosts" | "flows" | "detail">("hosts");
   const [filter, setFilter] = useState<string>("");
   const [shotV, setShotV] = useState(0);
+  const [view, setView] = useState<"live" | "snapshot">("live");
 
   // Poll session metadata until completed/failed
   useEffect(() => {
@@ -247,10 +249,28 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
   }, [hosts, targetHost]);
 
   async function onDestroy() {
-    if (!confirm("Destroy this Kasm workspace early?")) return;
+    if (!confirm("Destroy this Kasm workspace?")) return;
     await destroySandboxSession(sessionId).catch(() => undefined);
     setRec((r) => (r ? { ...r, status: "completed" } : r));
   }
+
+  async function onFinalize() {
+    try {
+      const r = await finalizeSandboxSession(sessionId);
+      setRec(r);
+      if (r.has_screenshot) {
+        setShotV((v) => v + 1);
+        setView("snapshot");
+      }
+    } catch {
+      /* noop */
+    }
+  }
+
+  // Auto-flip to snapshot once available and analysis is done.
+  useEffect(() => {
+    if (rec?.status === "completed" && rec.has_screenshot) setView("snapshot");
+  }, [rec?.status, rec?.has_screenshot]);
 
   return (
     <div className="rep-root">
@@ -277,10 +297,25 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
           ) : null}
         </div>
         <div className="rep-actions">
+          {rec?.kasm_viewer_url ? (
+            <a
+              className="btn-ghost"
+              href={rec.kasm_viewer_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open in new tab ↗
+            </a>
+          ) : null}
           {rec?.status === "analyzing" ? (
-            <button className="btn-ghost-bad" onClick={onDestroy}>
-              Cancel
-            </button>
+            <>
+              <button className="btn-primary" onClick={onFinalize}>
+                Finalize
+              </button>
+              <button className="btn-ghost-bad" onClick={onDestroy}>
+                Cancel
+              </button>
+            </>
           ) : null}
         </div>
       </header>
@@ -302,9 +337,34 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
 
       <div className="rep-grid">
         <section className="rep-shot">
-          <div className="rep-shot-head">Browser snapshot</div>
+          <div className="rep-shot-head">
+            <span>Browser</span>
+            <div className="rep-view-toggle">
+              <button
+                className={view === "live" ? "active" : ""}
+                onClick={() => setView("live")}
+                disabled={!rec?.kasm_viewer_url}
+              >
+                Live
+              </button>
+              <button
+                className={view === "snapshot" ? "active" : ""}
+                onClick={() => setView("snapshot")}
+                disabled={!rec?.has_screenshot}
+              >
+                Snapshot
+              </button>
+            </div>
+          </div>
           <div className="rep-shot-body">
-            {rec?.has_screenshot ? (
+            {view === "live" && rec?.kasm_viewer_url ? (
+              <iframe
+                title="Kasm session"
+                src={rec.kasm_viewer_url}
+                allow="clipboard-read; clipboard-write; fullscreen; autoplay"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-pointer-lock allow-downloads"
+              />
+            ) : view === "snapshot" && rec?.has_screenshot ? (
               <img
                 key={shotV}
                 src={`${screenshotUrl(sessionId)}?v=${shotV}`}
@@ -313,22 +373,32 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
             ) : rec?.status === "analyzing" ? (
               <div className="rep-shot-skel">
                 <div className="spinner" />
-                <p>Detonating in isolated Kasm Chrome…</p>
+                <p>Provisioning Kasm Chrome…</p>
                 <p className="muted">
-                  Capturing TLS-decrypted traffic. Snapshot taken when the page
-                  has settled (~30s).
+                  Workspace will appear here as soon as Kasm reports it running.
                 </p>
               </div>
             ) : rec?.status === "failed" ? (
               <div className="rep-shot-skel">
-                <p className="muted">No snapshot — analysis failed.</p>
+                <p className="muted">Analysis failed — see banner above.</p>
               </div>
             ) : (
               <div className="rep-shot-skel">
-                <p className="muted">Waiting for snapshot…</p>
+                <p className="muted">No browser available.</p>
               </div>
             )}
           </div>
+          {view === "live" && rec?.kasm_viewer_url ? (
+            <div className="rep-shot-foot">
+              Seeing the Kasm dashboard or "Uautorisert tilgang"? Your browser
+              has a Kasm admin cookie that overrides this iframe's per-session
+              JWT. Open this page in an <strong>incognito window</strong>, or use{" "}
+              <a href={rec.kasm_viewer_url} target="_blank" rel="noreferrer">
+                Open in new tab
+              </a>
+              .
+            </div>
+          ) : null}
         </section>
 
         <section className="rep-panel">

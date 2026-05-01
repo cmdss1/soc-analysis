@@ -81,3 +81,12 @@ export async function destroySandboxSession(sessionId: string): Promise<void> {
     method: "POST",
   });
 }
+
+export async function finalizeSandboxSession(sessionId: string): Promise<SandboxRecord> {
+  const res = await fetch(
+    `${apiBase()}/api/v1/sandbox/sessions/${sessionId}/finalize`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error("Finalize failed");
+  return res.json();
+}

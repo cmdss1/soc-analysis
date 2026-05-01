@@ -25,7 +25,7 @@ from soc_sandbox.url_validate import UrlRejected, validate_target_url
 logger = logging.getLogger("soc_sandbox.routes")
 router = APIRouter(prefix="/api/v1/sandbox", tags=["sandbox"])
 
-ANALYSIS_DURATION_S = 30.0
+ANALYSIS_DURATION_S = 600.0  # auto-finalize after 10 min of inactivity
 SCREENSHOT_RETRIES = 8
 
 
@@ -154,8 +154,33 @@ def _public_record(rec: SandboxSession) -> dict[str, Any]:
     }
 
 
+async def _capture_and_destroy(rec: SandboxSession) -> None:
+    """Take a final snapshot and destroy the Kasm. Idempotent."""
+    if rec.status in ("completed", "failed"):
+        return
+    if rec.kasm_id and rec.screenshot_png is None:
+        for attempt in range(SCREENSHOT_RETRIES):
+            try:
+                png = await get_kasm_screenshot(kasm_id=rec.kasm_id)
+            except Exception as exc:
+                logger.warning("screenshot attempt %s failed: %s", attempt, exc)
+                png = None
+            if png:
+                rec.screenshot_png = png
+                break
+            await asyncio.sleep(2.0)
+    if rec.kasm_id:
+        try:
+            await destroy_session(kasm_id=rec.kasm_id)
+        except Exception as exc:
+            logger.warning("destroy_kasm failed: %s", exc)
+    if rec.status != "failed":
+        rec.status = "completed"
+    rec.completed_at = time.time()
+
+
 async def _analyze(rec: SandboxSession) -> None:
-    """Background worker: wait for kasm running -> sleep for traffic capture -> snapshot -> destroy."""
+    """Background worker: wait for kasm running -> let analyst interact -> auto-finalize."""
     rec.status = "analyzing"
     try:
         if not rec.kasm_id:
@@ -168,27 +193,13 @@ async def _analyze(rec: SandboxSession) -> None:
             rec.status = "failed"
             rec.error = "Kasm workspace never reached running state"
 
-        await asyncio.sleep(ANALYSIS_DURATION_S)
-
-        for attempt in range(SCREENSHOT_RETRIES):
-            try:
-                png = await get_kasm_screenshot(kasm_id=rec.kasm_id)
-            except Exception as exc:
-                logger.warning("screenshot attempt %s failed: %s", attempt, exc)
-                png = None
-            if png:
-                rec.screenshot_png = png
-                break
+        # Idle/analysis window. Analyst can finalize early via /finalize.
+        deadline = time.time() + ANALYSIS_DURATION_S
+        while time.time() < deadline and rec.status == "analyzing":
             await asyncio.sleep(2.0)
 
-        try:
-            await destroy_session(kasm_id=rec.kasm_id)
-        except Exception as exc:
-            logger.warning("destroy_kasm failed: %s", exc)
-
-        if rec.status != "failed":
-            rec.status = "completed"
-        rec.completed_at = time.time()
+        if rec.status == "analyzing":
+            await _capture_and_destroy(rec)
     except Exception as exc:  # noqa: BLE001
         logger.exception("analysis worker error")
         rec.status = "failed"
@@ -288,12 +299,23 @@ async def session_events(session_id: str) -> StreamingResponse:
     )
 
 
+@router.post("/sessions/{session_id}/finalize")
+async def finalize_session(session_id: str) -> dict[str, Any]:
+    """Take the final snapshot and destroy the Kasm — analyst clicked Finalize."""
+    rec = registry.get(session_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    await _capture_and_destroy(rec)
+    return _public_record(rec)
+
+
 @router.post("/sessions/{session_id}/destroy")
 async def stop_session(session_id: str) -> dict[str, Any]:
     rec = registry.get(session_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Unknown session")
     if not rec.kasm_id:
+        rec.status = "completed"
         return {"ok": True, "detail": "no kasm id"}
     try:
         out = await destroy_session(kasm_id=rec.kasm_id)
