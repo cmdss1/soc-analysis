@@ -1,5 +1,18 @@
-const apiBase = () =>
-  (process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000").replace(/\/$/, "");
+/**
+ * Browser: same-origin `/soc-api` via Next rewrites → avoids CORS / flaky SSE to :8000.
+ * Server (SSR): env or direct backend URL.
+ */
+export function apiBase(): string {
+  if (typeof window !== "undefined") {
+    const origin = window.location.origin.replace(/\/$/, "");
+    return `${origin}/soc-api`;
+  }
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE;
+  if (fromEnv?.trim()) {
+    return fromEnv.replace(/\/$/, "");
+  }
+  return "http://127.0.0.1:8000";
+}
 
 export async function createSandboxSession(targetUrl: string) {
   const res = await fetch(`${apiBase()}/api/v1/sandbox/sessions`, {
@@ -21,6 +34,7 @@ export async function createSandboxSession(targetUrl: string) {
     session_id: string;
     kasm_viewer_url: string | null;
     target_url: string;
+    kasm_id?: string | null;
   }>;
 }
 
@@ -41,4 +55,10 @@ export async function fetchSession(sessionId: string) {
 
 export function eventsUrl(sessionId: string) {
   return `${apiBase()}/api/v1/sandbox/sessions/${sessionId}/events`;
+}
+
+export async function destroySandboxSession(sessionId: string) {
+  await fetch(`${apiBase()}/api/v1/sandbox/sessions/${sessionId}/destroy`, {
+    method: "POST",
+  });
 }

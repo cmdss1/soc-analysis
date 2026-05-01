@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { eventsUrl, fetchSession } from "@/lib/api";
+import { destroySandboxSession, eventsUrl, fetchSession } from "@/lib/api";
 
 type MitmEvent = {
   type?: string;
@@ -127,6 +128,16 @@ export default function SessionWorkspace({
   const [liveErr, setLiveErr] = useState<string | null>(null);
   const [tab, setTab] = useState<"flows" | "hosts" | "detail">("flows");
   const [filter, setFilter] = useState<string>("");
+  const router = useRouter();
+
+  async function onDestroy() {
+    if (!confirm("Destroy Kasm session? This stops the workspace.")) return;
+    try {
+      await destroySandboxSession(sessionId);
+    } finally {
+      router.push("/");
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -285,6 +296,9 @@ export default function SessionWorkspace({
             Open in new tab ↗
           </a>
         ) : null}
+        <button className="soc-destroy" onClick={onDestroy}>
+          Destroy
+        </button>
       </header>
 
       {loadErr ? <p className="soc-error">{loadErr}</p> : null}
@@ -310,9 +324,10 @@ export default function SessionWorkspace({
           )}
           {hasViewer ? (
             <div className="soc-viewer-foot">
-              If the desktop is blank, your Kasm server is denying iframe
-              embedding. In Kasm Admin, enable
-              <code>Allow Kasm Embedding</code> on the workspace, or click{" "}
+              Seeing the Kasm dashboard or an "Unauthorized" toast? Your browser
+              is logged into Kasm and its session cookie is overriding this
+              iframe's JWT. Open this page in an <strong>incognito window</strong>{" "}
+              (or different browser profile), or click{" "}
               <a href={viewer} target="_blank" rel="noreferrer">
                 Open in new tab
               </a>

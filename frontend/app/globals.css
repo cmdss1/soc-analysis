@@ -153,6 +153,19 @@ pre {
   text-decoration: none;
 }
 
+.soc-destroy {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--bad);
+}
+.soc-destroy:hover {
+  background: #2d0c0c;
+  border-color: var(--bad);
+}
+
 .soc-error {
   margin: 0;
   padding: 10px 16px;
