@@ -46,15 +46,33 @@ trap cleanup EXIT INT TERM
 wait_port "$MITM_PORT" || echo "[kasm-mitm] WARN: mitm port not accepting connections yet"
 
 if wait_ca; then
+  CA_PEM="${MITM_CONF}/mitmproxy-ca-cert.pem"
+
+  # System trust (only if root). Chrome on Linux ignores this, but other tools may use it.
   if [[ $(id -u) -eq 0 ]]; then
-    echo "[kasm-mitm] Installing MITM CA into system trust store..."
-    cp "${MITM_CONF}/mitmproxy-ca-cert.pem" /usr/local/share/ca-certificates/soc-mitm.crt 2>/dev/null || true
+    cp "$CA_PEM" /usr/local/share/ca-certificates/soc-mitm.crt 2>/dev/null || true
     update-ca-certificates 2>/dev/null || true
+  fi
+
+  # Chrome on Linux trusts certs from the user's NSS DB (~/.pki/nssdb), NOT the system bundle.
+  # Without this, every HTTPS site shows NET::ERR_CERT_AUTHORITY_INVALID and no flows reach mitm.
+  if command -v certutil >/dev/null 2>&1; then
+    NSSDB="${HOME:-/home/kasm-user}/.pki/nssdb"
+    mkdir -p "$NSSDB"
+    if [[ ! -f "$NSSDB/cert9.db" ]]; then
+      certutil -d "sql:$NSSDB" -N --empty-password >/dev/null 2>&1 || true
+    fi
+    certutil -d "sql:$NSSDB" -D -n "soc-mitm" >/dev/null 2>&1 || true
+    if certutil -d "sql:$NSSDB" -A -t "C,," -n "soc-mitm" -i "$CA_PEM"; then
+      echo "[kasm-mitm] Installed mitmproxy CA into Chrome NSS DB at $NSSDB"
+    else
+      echo "[kasm-mitm] WARN: failed to install CA into NSS DB ($NSSDB)"
+    fi
   else
-    echo "[kasm-mitm] MITM CA at ${MITM_CONF}/mitmproxy-ca-cert.pem (system CA install skipped for UID $(id -u); Chrome policy still uses proxy)."
+    echo "[kasm-mitm] WARN: certutil not found; Chrome will reject mitm TLS"
   fi
 else
-  echo "[kasm-mitm] WARN: mitmproxy CA not found; TLS interception may warn in-browser"
+  echo "[kasm-mitm] WARN: mitmproxy CA not found; TLS interception will fail in browser"
 fi
 
 trap - EXIT INT TERM
