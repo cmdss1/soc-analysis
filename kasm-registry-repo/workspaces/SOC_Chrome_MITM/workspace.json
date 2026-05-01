@@ -1,5 +1,5 @@
 {
-  "description": "Kasm Chrome with mitmproxy TLS interception, trusted MITM CA, and SOC collector hooks (SOC_COLLECTOR_URL / SOC_INGEST_TOKEN). Image published by SOC analysis repo Actions to ghcr.io/cmdss1/kasm-chrome-mitm — change image prefix if your GitHub owner differs.",
+  "description": "Kasm Chrome with mitmproxy TLS interception. Image on GHCR. Use fully-qualified image (ghcr.io/…) because some Kasm builds ignore docker_registry when pulling.",
   "docker_registry": "https://ghcr.io",
   "image_src": "soc-chrome-mitm.png",
   "run_config": {
@@ -11,42 +11,42 @@
   "compatibility": [
     {
       "version": "1.14.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.15.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.16.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.17.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.18.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.19.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.20.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     },
     {
       "version": "1.21.x",
-      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "image": "ghcr.io/cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
     }
   ]
