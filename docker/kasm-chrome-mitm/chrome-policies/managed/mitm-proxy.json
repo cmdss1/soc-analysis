@@ -1,0 +1,5 @@
+{
+  "ProxyMode": "fixed_servers",
+  "ProxyServer": "127.0.0.1:8080",
+  "ProxyBypassList": "localhost,127.0.0.1"
+}

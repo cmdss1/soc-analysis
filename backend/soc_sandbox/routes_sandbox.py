@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any, Optional
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from soc_sandbox.config import settings
+from soc_sandbox.kasm import KasmError, create_session, destroy_session
+from soc_sandbox.sessions import registry
+from soc_sandbox.url_validate import UrlRejected, validate_target_url
+
+router = APIRouter(prefix="/api/v1/sandbox", tags=["sandbox"])
+
+
+class CreateSessionBody(BaseModel):
+    url: str = Field(..., min_length=4, max_length=8192)
+
+
+def _absolute_kasm_viewer(viewer: Optional[str]) -> Optional[str]:
+    if not viewer:
+        return None
+    if viewer.startswith(("http://", "https://")):
+        return viewer
+    base = urlparse(settings.kasm_base_url)
+    if not base.scheme or not base.netloc:
+        return viewer
+    origin = f"{base.scheme}://{base.netloc}"
+    if viewer.startswith("/"):
+        return origin + viewer
+    return viewer
+
+
+@router.post("/sessions")
+async def start_session(body: CreateSessionBody) -> dict[str, Any]:
+    try:
+        url = validate_target_url(
+            body.url,
+            block_private_ips=settings.block_private_target_ips,
+        )
+    except UrlRejected as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    rec = registry.create(url)
+    env = {
+        "SOC_COLLECTOR_URL": settings.ingest_url(),
+        "SOC_INGEST_TOKEN": rec.ingest_token,
+        "SOC_SESSION_ID": rec.id,
+    }
+
+    try:
+        if settings.mock_kasm:
+            rec.kasm_id = "mock-kasm-id"
+            rec.kasm_viewer_url = settings.mock_kasm_viewer_url or "about:blank"
+        else:
+            resp = await create_session(kasm_url=url, environment=env)
+            kid = resp.get("kasm_id")
+            if not kid and isinstance(resp.get("kasm"), dict):
+                kid = resp["kasm"].get("kasm_id")
+            viewer = resp.get("kasm_url")
+            rec.kasm_id = kid
+            rec.kasm_viewer_url = _absolute_kasm_viewer(viewer)
+    except KasmError as e:
+        registry.discard_record(rec)
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    return {
+        "session_id": rec.id,
+        "target_url": rec.target_url,
+        "kasm_id": rec.kasm_id,
+        "kasm_viewer_url": rec.kasm_viewer_url,
+        "ingest_configured": bool(settings.public_api_base),
+    }
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str) -> dict[str, Any]:
+    rec = registry.get(session_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    return {
+        "session_id": rec.id,
+        "target_url": rec.target_url,
+        "kasm_id": rec.kasm_id,
+        "kasm_viewer_url": rec.kasm_viewer_url,
+    }
+
+
+@router.get("/sessions/{session_id}/events")
+async def session_events(session_id: str) -> StreamingResponse:
+    try:
+        rec, q = registry.subscribe(session_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="Unknown session") from e
+
+    async def gen():
+        try:
+            for ev in list(rec.recent_events):
+                yield f"data: {json.dumps(ev)}\n\n"
+            while True:
+                ev = await q.get()
+                yield f"data: {json.dumps(ev)}\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            registry.unsubscribe(session_id, q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/sessions/{session_id}/destroy")
+async def stop_session(session_id: str) -> dict[str, Any]:
+    rec = registry.get(session_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    if settings.mock_kasm or not rec.kasm_id or rec.kasm_id == "mock-kasm-id":
+        return {"ok": True, "detail": "mock or no kasm id"}
+    try:
+        out = await destroy_session(kasm_id=rec.kasm_id)
+        return {"ok": True, "kasm": out}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+__all__ = ["router"]

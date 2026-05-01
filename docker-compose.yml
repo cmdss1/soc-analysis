@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      CORS_ORIGINS: http://localhost:3000
+      PUBLIC_API_BASE: http://host.docker.internal:8000
+      # Configure real Kasm for integration testing:
+      # KASM_BASE_URL: https://kasm.example.com
+      # KASM_API_KEY: ""
+      # KASM_API_SECRET: ""
+      # KASM_IMAGE_ID: ""
+      # KASM_USER_ID: ""
+      MOCK_KASM: "true"
+      MOCK_KASM_VIEWER_URL: about:blank
+
+  web:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000
+    depends_on:
+      - api

@@ -1,0 +1,53 @@
+# Builds docker/kasm-chrome-mitm and pushes to GHCR:
+#   ghcr.io/<repo-owner-lowercase>/kasm-chrome-mitm:1.0
+#
+# Match kasm-registry-repo workspaces/SOC_Chrome_MITM/workspace.json "image" field
+# to OWNER/kasm-chrome-mitm:1.0 (same OWNER, lowercase).
+
+name: Publish Kasm Chrome MITM (GHCR)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "docker/kasm-chrome-mitm/**"
+      - ".github/workflows/publish-kasm-chrome-mitm.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ghcr-kasm-chrome-mitm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase owner (GHCR requires lowercase path)
+        id: vars
+        run: echo "owner_lc=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker/kasm-chrome-mitm
+          file: docker/kasm-chrome-mitm/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/kasm-chrome-mitm:1.0
+            ghcr.io/${{ steps.vars.outputs.owner_lc }}/kasm-chrome-mitm:latest
