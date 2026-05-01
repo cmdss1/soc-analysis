@@ -6,7 +6,7 @@ import { createSandboxSession } from "@/lib/api";
 
 export default function HomePage() {
   const router = useRouter();
-  const [url, setUrl] = useState("https://example.com");
+  const [url, setUrl] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -18,7 +18,7 @@ export default function HomePage() {
       const out = await createSandboxSession(url.trim());
       router.push(`/session/${out.session_id}`);
     } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "Launch failed");
+      setErr(ex instanceof Error ? ex.message : "Submit failed");
       setBusy(false);
     }
   }
@@ -29,32 +29,42 @@ export default function HomePage() {
         <div className="home-brand">
           <div className="home-logo">SOC</div>
           <div>
-            <h1>URL Sandbox</h1>
-            <p>Detonate a link inside an isolated Kasm Chrome with full TLS-decrypted network capture.</p>
+            <h1>URL Detonator</h1>
+            <p>
+              Submit a suspicious URL. We open it inside an isolated Kasm Chrome,
+              decrypt all TLS traffic via mitmproxy, then snapshot the page.
+            </p>
           </div>
         </div>
 
         <form onSubmit={onSubmit} className="home-form">
-          <label>
-            <span>Target URL</span>
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://"
-              autoFocus
-              spellCheck={false}
-            />
-          </label>
-          {err ? <p className="home-err">{err}</p> : null}
-          <button type="submit" disabled={busy}>
-            {busy ? "Provisioning Kasm…" : "Detonate"}
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://suspicious.example/path"
+            autoFocus
+            spellCheck={false}
+            inputMode="url"
+          />
+          <button type="submit" disabled={busy || !url.trim()}>
+            {busy ? "Detonating…" : "Submit"}
           </button>
         </form>
+        {err ? <p className="home-err">{err}</p> : null}
 
         <ul className="home-features">
-          <li><strong>Isolated</strong> — Chrome runs in a Kasm container, never on your host</li>
-          <li><strong>Decrypted</strong> — mitmproxy CA installed in the container's NSS DB</li>
-          <li><strong>Live</strong> — flows, hosts, IPs, TLS metadata stream into the workspace</li>
+          <li>
+            <strong>Isolated</strong> — Chrome runs in a Kasm container, never on
+            your host
+          </li>
+          <li>
+            <strong>Decrypted</strong> — mitmproxy CA installed in Chrome's NSS
+            DB, full HTTPS visibility
+          </li>
+          <li>
+            <strong>Reported</strong> — screenshot, hosts, IPs, TLS metadata,
+            response bodies
+          </li>
         </ul>
       </div>
     </main>

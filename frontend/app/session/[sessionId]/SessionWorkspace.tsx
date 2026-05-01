@@ -1,9 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { destroySandboxSession, eventsUrl, fetchSession } from "@/lib/api";
+import {
+  destroySandboxSession,
+  eventsUrl,
+  fetchSession,
+  screenshotUrl,
+  type SandboxRecord,
+} from "@/lib/api";
 
 type MitmEvent = {
   type?: string;
@@ -55,10 +60,6 @@ type FlowRow = {
   resp_len?: number;
 };
 
-function isHttpViewerUrl(v: string | null | undefined): v is string {
-  return Boolean(v && (v.startsWith("http://") || v.startsWith("https://")));
-}
-
 function mergeFlow(prev: FlowRow, ev: MitmEvent): FlowRow {
   const next = { ...prev };
   if (ev.method) next.method = ev.method;
@@ -102,67 +103,53 @@ function shortType(ct?: string | null): string {
   return ct.split(";")[0].trim();
 }
 
-type HostRow = {
-  host: string;
-  ips: Set<string>;
-  count: number;
-  scheme?: string;
-  firstTs: string;
-  lastTs: string;
-  hasError: boolean;
-};
+function StatusBadge({ status }: { status: SandboxRecord["status"] }) {
+  const map: Record<string, { color: string; label: string }> = {
+    pending: { color: "#8b97a7", label: "Queued" },
+    analyzing: { color: "#d29922", label: "Analyzing" },
+    completed: { color: "#3fb950", label: "Completed" },
+    failed: { color: "#f85149", label: "Failed" },
+  };
+  const it = map[status] ?? map.pending;
+  return (
+    <span className="status-badge" style={{ color: it.color, borderColor: it.color }}>
+      <span className="status-dot" style={{ background: it.color }} />
+      {it.label}
+    </span>
+  );
+}
 
-export default function SessionWorkspace({
-  sessionId,
-}: {
-  sessionId: string;
-}) {
-  const [meta, setMeta] = useState<{
-    target_url: string;
-    kasm_viewer_url: string | null;
-    kasm_id: string | null;
-  } | null>(null);
+export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
+  const [rec, setRec] = useState<SandboxRecord | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [flows, setFlows] = useState<Map<string, FlowRow>>(() => new Map());
   const [selected, setSelected] = useState<string | null>(null);
-  const [liveErr, setLiveErr] = useState<string | null>(null);
-  const [tab, setTab] = useState<"flows" | "hosts" | "detail">("flows");
+  const [tab, setTab] = useState<"hosts" | "flows" | "detail">("hosts");
   const [filter, setFilter] = useState<string>("");
-  const router = useRouter();
+  const [shotV, setShotV] = useState(0);
 
-  async function onDestroy() {
-    if (!confirm("Destroy Kasm session? This stops the workspace.")) return;
-    try {
-      await destroySandboxSession(sessionId);
-    } finally {
-      router.push("/");
-    }
-  }
-
+  // Poll session metadata until completed/failed
   useEffect(() => {
     let cancelled = false;
     let tries = 0;
-    async function run() {
-      while (!cancelled && tries < 90) {
+    async function loop() {
+      while (!cancelled && tries < 120) {
         try {
           const s = await fetchSession(sessionId);
           if (cancelled) return;
           setLoadErr(null);
-          setMeta({
-            target_url: s.target_url,
-            kasm_viewer_url: s.kasm_viewer_url,
-            kasm_id: s.kasm_id,
-          });
-          if (isHttpViewerUrl(s.kasm_viewer_url)) return;
+          setRec(s);
+          if (s.has_screenshot) setShotV((v) => v + 1);
+          if (s.status === "completed" || s.status === "failed") return;
         } catch {
-          if (!cancelled) setLoadErr("Could not load session metadata.");
+          if (!cancelled) setLoadErr("Could not load session.");
           return;
         }
         tries += 1;
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 2500));
       }
     }
-    run();
+    loop();
     return () => {
       cancelled = true;
     };
@@ -173,25 +160,22 @@ export default function SessionWorkspace({
     src.onmessage = (m) => {
       try {
         const ev = JSON.parse(m.data) as MitmEvent;
-        setLiveErr(null);
-        if (ev.type === "http_request" || ev.type === "http_response") {
-          if (!ev.request_id) return;
-          setFlows((prev) => {
-            const n = new Map(prev);
-            const cur =
-              n.get(ev.request_id!) || {
-                request_id: ev.request_id!,
-                ts: ev.ts || new Date().toISOString(),
-              };
-            n.set(ev.request_id!, mergeFlow(cur, ev));
-            return n;
-          });
-        }
+        if (ev.type !== "http_request" && ev.type !== "http_response") return;
+        if (!ev.request_id) return;
+        setFlows((prev) => {
+          const n = new Map(prev);
+          const cur =
+            n.get(ev.request_id!) || {
+              request_id: ev.request_id!,
+              ts: ev.ts || new Date().toISOString(),
+            };
+          n.set(ev.request_id!, mergeFlow(cur, ev));
+          return n;
+        });
       } catch {
-        setLiveErr("Malformed SSE payload");
+        /* ignore malformed */
       }
     };
-    src.onerror = () => setLiveErr("SSE disconnected — refresh if flows stall.");
     return () => src.close();
   }, [sessionId]);
 
@@ -209,24 +193,23 @@ export default function SessionWorkspace({
     );
   }, [flows, filter]);
 
-  const hosts = useMemo<HostRow[]>(() => {
-    const m = new Map<string, HostRow>();
+  const hosts = useMemo(() => {
+    const m = new Map<
+      string,
+      { host: string; ips: Set<string>; count: number; errors: number; scheme?: string }
+    >();
     for (const f of flows.values()) {
       if (!f.host) continue;
       const cur = m.get(f.host) || {
         host: f.host,
         ips: new Set<string>(),
         count: 0,
+        errors: 0,
         scheme: f.scheme,
-        firstTs: f.ts,
-        lastTs: f.ts,
-        hasError: false,
       };
       cur.count += 1;
       if (f.server_ip) cur.ips.add(f.server_ip);
-      if (f.ts < cur.firstTs) cur.firstTs = f.ts;
-      if (f.ts > cur.lastTs) cur.lastTs = f.ts;
-      if ((f.status_code || 0) >= 400) cur.hasError = true;
+      if ((f.status_code || 0) >= 400) cur.errors += 1;
       m.set(f.host, cur);
     }
     return Array.from(m.values()).sort((a, b) => b.count - a.count);
@@ -247,103 +230,109 @@ export default function SessionWorkspace({
   }, [flows, hosts.length]);
 
   const detail = selected ? flows.get(selected) : undefined;
-  const viewer = meta?.kasm_viewer_url;
-  const hasViewer = isHttpViewerUrl(viewer);
-  let viewerOriginLabel = "";
-  if (hasViewer) {
+
+  const targetHost = useMemo(() => {
     try {
-      viewerOriginLabel = new URL(viewer).hostname;
+      return rec ? new URL(rec.target_url).hostname : "";
     } catch {
-      viewerOriginLabel = viewer;
+      return "";
     }
+  }, [rec]);
+
+  const targetIp = useMemo(() => {
+    if (!targetHost) return undefined;
+    const direct = hosts.find((h) => h.host === targetHost);
+    if (direct?.ips.size) return Array.from(direct.ips)[0];
+    return undefined;
+  }, [hosts, targetHost]);
+
+  async function onDestroy() {
+    if (!confirm("Destroy this Kasm workspace early?")) return;
+    await destroySandboxSession(sessionId).catch(() => undefined);
+    setRec((r) => (r ? { ...r, status: "completed" } : r));
   }
 
   return (
-    <div className="soc-root">
-      <header className="soc-header">
-        <Link href="/" className="soc-back">
-          ← New
+    <div className="rep-root">
+      <header className="rep-header">
+        <Link href="/" className="rep-back">
+          ← New scan
         </Link>
-        <div className="soc-title">
-          <strong>SOC Sandbox</strong>
-          <span className="soc-id">
-            {sessionId.slice(0, 8)} · kasm {meta?.kasm_id?.slice(0, 8) || "—"}
-          </span>
-        </div>
-        <div className="soc-target">
-          <span className="soc-label">Target</span>
-          <code>{meta?.target_url || "…"}</code>
-        </div>
-        <div className="soc-stats">
-          <Stat label="Flows" value={stats.total} />
-          <Stat label="Hosts" value={stats.hosts} />
-          <Stat label="HTTPS" value={`${stats.https}/${stats.total || 0}`} />
-          <Stat
-            label="Errors"
-            value={stats.errors}
-            color={stats.errors > 0 ? "#f85149" : undefined}
-          />
-          <Stat label="Bytes" value={fmtBytes(stats.bytes)} />
-        </div>
-        {hasViewer ? (
-          <a
-            href={viewer}
-            target="_blank"
-            rel="noreferrer"
-            className="soc-newtab"
-            title={viewerOriginLabel}
-          >
-            Open in new tab ↗
+        <div className="rep-target">
+          <span className="rep-label">Target</span>
+          <a href={rec?.target_url || "#"} target="_blank" rel="noreferrer">
+            {rec?.target_url || "…"}
           </a>
-        ) : null}
-        <button className="soc-destroy" onClick={onDestroy}>
-          Destroy
-        </button>
+          <div className="rep-target-sub">
+            {targetHost ? <code>{targetHost}</code> : null}
+            {targetIp ? <code className="ip">{targetIp}</code> : null}
+          </div>
+        </div>
+        <div className="rep-status">
+          {rec ? <StatusBadge status={rec.status} /> : null}
+          {rec ? (
+            <span className="rep-elapsed">
+              {Math.round(rec.elapsed_s)}s
+            </span>
+          ) : null}
+        </div>
+        <div className="rep-actions">
+          {rec?.status === "analyzing" ? (
+            <button className="btn-ghost-bad" onClick={onDestroy}>
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </header>
 
-      {loadErr ? <p className="soc-error">{loadErr}</p> : null}
-      {liveErr ? <p className="soc-warn">{liveErr}</p> : null}
+      {loadErr ? <p className="rep-error">{loadErr}</p> : null}
+      {rec?.error ? <p className="rep-error">Analysis error: {rec.error}</p> : null}
 
-      <div className="soc-grid">
-        <section className="soc-viewer">
-          {hasViewer ? (
-            <iframe
-              title="Kasm session"
-              src={viewer}
-              allow="clipboard-read; clipboard-write; fullscreen; autoplay"
-              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-pointer-lock allow-downloads"
-            />
-          ) : (
-            <div className="soc-placeholder">
-              <p>
-                Provisioning Kasm workspace… Kasm only returns a viewer URL once
-                the container is <strong>running</strong>. This panel rechecks
-                automatically.
-              </p>
-            </div>
-          )}
-          {hasViewer ? (
-            <div className="soc-viewer-foot">
-              Seeing the Kasm dashboard or an "Unauthorized" toast? Your browser
-              is logged into Kasm and its session cookie is overriding this
-              iframe's JWT. Open this page in an <strong>incognito window</strong>{" "}
-              (or different browser profile), or click{" "}
-              <a href={viewer} target="_blank" rel="noreferrer">
-                Open in new tab
-              </a>
-              .
-            </div>
-          ) : null}
+      <div className="rep-summary">
+        <Stat label="Flows" value={stats.total} />
+        <Stat label="Hosts" value={stats.hosts} />
+        <Stat
+          label="HTTPS"
+          value={stats.total ? `${Math.round((stats.https * 100) / stats.total)}%` : "—"}
+        />
+        <Stat label="Errors" value={stats.errors} color={stats.errors ? "#f85149" : undefined} />
+        <Stat label="Bytes" value={fmtBytes(stats.bytes)} />
+        <Stat label="Kasm" value={rec?.kasm_id?.slice(0, 8) || "—"} mono />
+      </div>
+
+      <div className="rep-grid">
+        <section className="rep-shot">
+          <div className="rep-shot-head">Browser snapshot</div>
+          <div className="rep-shot-body">
+            {rec?.has_screenshot ? (
+              <img
+                key={shotV}
+                src={`${screenshotUrl(sessionId)}?v=${shotV}`}
+                alt="Browser snapshot"
+              />
+            ) : rec?.status === "analyzing" ? (
+              <div className="rep-shot-skel">
+                <div className="spinner" />
+                <p>Detonating in isolated Kasm Chrome…</p>
+                <p className="muted">
+                  Capturing TLS-decrypted traffic. Snapshot taken when the page
+                  has settled (~30s).
+                </p>
+              </div>
+            ) : rec?.status === "failed" ? (
+              <div className="rep-shot-skel">
+                <p className="muted">No snapshot — analysis failed.</p>
+              </div>
+            ) : (
+              <div className="rep-shot-skel">
+                <p className="muted">Waiting for snapshot…</p>
+              </div>
+            )}
+          </div>
         </section>
 
-        <section className="soc-panel">
-          <nav className="soc-tabs">
-            <button
-              className={tab === "flows" ? "active" : ""}
-              onClick={() => setTab("flows")}
-            >
-              Flows ({stats.total})
-            </button>
+        <section className="rep-panel">
+          <nav className="rep-tabs">
             <button
               className={tab === "hosts" ? "active" : ""}
               onClick={() => setTab("hosts")}
@@ -351,23 +340,79 @@ export default function SessionWorkspace({
               Hosts ({stats.hosts})
             </button>
             <button
+              className={tab === "flows" ? "active" : ""}
+              onClick={() => setTab("flows")}
+            >
+              Flows ({stats.total})
+            </button>
+            <button
               className={tab === "detail" ? "active" : ""}
               onClick={() => setTab("detail")}
               disabled={!detail}
             >
-              Detail
+              Flow detail
             </button>
             <input
-              className="soc-filter"
+              className="rep-filter"
               placeholder="filter host / path / IP / status"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
           </nav>
 
+          {tab === "hosts" ? (
+            <div className="rep-table-wrap">
+              <table className="rep-table">
+                <thead>
+                  <tr>
+                    <th>Host</th>
+                    <th>Resolved IPs</th>
+                    <th>Flows</th>
+                    <th>Errors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hosts.map((h) => (
+                    <tr
+                      key={h.host}
+                      onClick={() => {
+                        setFilter(h.host);
+                        setTab("flows");
+                      }}
+                    >
+                      <td className="trunc">
+                        {h.host === targetHost ? (
+                          <strong className="target-host">{h.host}</strong>
+                        ) : (
+                          h.host
+                        )}
+                      </td>
+                      <td className="ip">
+                        {Array.from(h.ips).join(", ") || "—"}
+                      </td>
+                      <td>{h.count}</td>
+                      <td style={{ color: h.errors ? "#f85149" : "var(--muted)" }}>
+                        {h.errors || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                  {hosts.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="empty">
+                        {rec?.status === "analyzing"
+                          ? "Capturing…"
+                          : "No hosts contacted."}
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
           {tab === "flows" ? (
-            <div className="soc-table-wrap">
-              <table className="soc-table">
+            <div className="rep-table-wrap">
+              <table className="rep-table">
                 <thead>
                   <tr>
                     <th>Method</th>
@@ -390,7 +435,7 @@ export default function SessionWorkspace({
                       className={selected === r.request_id ? "selected" : ""}
                     >
                       <td>
-                        <span className={`soc-method ${r.scheme || ""}`}>
+                        <span className={`rep-method ${r.scheme || ""}`}>
                           {r.method || "—"}
                         </span>
                       </td>
@@ -409,47 +454,7 @@ export default function SessionWorkspace({
                   {rows.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="empty">
-                        No flows yet — interact with the workspace.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {tab === "hosts" ? (
-            <div className="soc-table-wrap">
-              <table className="soc-table">
-                <thead>
-                  <tr>
-                    <th>Host</th>
-                    <th>Resolved IPs</th>
-                    <th>Flows</th>
-                    <th>First seen</th>
-                    <th>Errors</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hosts.map((h) => (
-                    <tr key={h.host} onClick={() => setFilter(h.host)}>
-                      <td className="trunc">{h.host}</td>
-                      <td className="ip">
-                        {Array.from(h.ips).join(", ") || "—"}
-                      </td>
-                      <td>{h.count}</td>
-                      <td className="muted">
-                        {new Date(h.firstTs).toLocaleTimeString()}
-                      </td>
-                      <td style={{ color: h.hasError ? "#f85149" : "var(--muted)" }}>
-                        {h.hasError ? "yes" : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                  {hosts.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="empty">
-                        Waiting for traffic…
+                        No flows yet.
                       </td>
                     </tr>
                   ) : null}
@@ -459,11 +464,11 @@ export default function SessionWorkspace({
           ) : null}
 
           {tab === "detail" ? (
-            <div className="soc-detail">
+            <div className="rep-detail">
               {detail ? (
                 <>
                   <h3>
-                    <span className={`soc-method ${detail.scheme || ""}`}>
+                    <span className={`rep-method ${detail.scheme || ""}`}>
                       {detail.method}
                     </span>{" "}
                     {detail.scheme}://{detail.host}
@@ -479,14 +484,8 @@ export default function SessionWorkspace({
                     <KV label="TLS" value={detail.tls?.tls_version ?? "—"} />
                     <KV label="SNI" value={detail.tls?.sni ?? "—"} />
                     <KV label="ALPN" value={detail.tls?.alpn ?? "—"} />
-                    <KV
-                      label="Cert subject"
-                      value={detail.server_cert?.subject ?? "—"}
-                    />
-                    <KV
-                      label="Cert issuer"
-                      value={detail.server_cert?.issuer ?? "—"}
-                    />
+                    <KV label="Cert subject" value={detail.server_cert?.subject ?? "—"} />
+                    <KV label="Cert issuer" value={detail.server_cert?.issuer ?? "—"} />
                     <KV
                       label="Sizes"
                       value={`req ${fmtBytes(detail.req_len)} · resp ${fmtBytes(detail.resp_len)}`}
@@ -494,19 +493,19 @@ export default function SessionWorkspace({
                   </div>
                   {detail.req_preview ? (
                     <>
-                      <h4>Request body preview</h4>
+                      <h4>Request body</h4>
                       <pre>{detail.req_preview}</pre>
                     </>
                   ) : null}
                   {detail.resp_preview ? (
                     <>
-                      <h4>Response body preview</h4>
+                      <h4>Response body</h4>
                       <pre>{detail.resp_preview}</pre>
                     </>
                   ) : null}
                 </>
               ) : (
-                <p className="muted">Select a flow to inspect.</p>
+                <p className="muted">Select a flow.</p>
               )}
             </div>
           ) : null}
@@ -520,15 +519,20 @@ function Stat({
   label,
   value,
   color,
+  mono,
 }: {
   label: string;
   value: string | number;
   color?: string;
+  mono?: boolean;
 }) {
   return (
-    <div className="soc-stat">
-      <span className="soc-stat-label">{label}</span>
-      <span className="soc-stat-value" style={color ? { color } : undefined}>
+    <div className="rep-stat">
+      <span className="rep-stat-label">{label}</span>
+      <span
+        className={`rep-stat-value${mono ? " mono" : ""}`}
+        style={color ? { color } : undefined}
+      >
         {value}
       </span>
     </div>

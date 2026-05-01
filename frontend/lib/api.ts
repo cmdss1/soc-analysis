@@ -1,5 +1,5 @@
 /**
- * Browser: same-origin `/soc-api` via Next rewrites → avoids CORS / flaky SSE to :8000.
+ * Browser: same-origin `/soc-api` via Next rewrites.
  * Server (SSR): env or direct backend URL.
  */
 export function apiBase(): string {
@@ -14,7 +14,34 @@ export function apiBase(): string {
   return "http://127.0.0.1:8000";
 }
 
-export async function createSandboxSession(targetUrl: string) {
+export type SandboxStatus = "pending" | "analyzing" | "completed" | "failed";
+
+export type HostSummary = {
+  host: string;
+  ips: string[];
+  count: number;
+  errors: number;
+};
+
+export type SandboxRecord = {
+  session_id: string;
+  target_url: string;
+  kasm_id: string | null;
+  kasm_viewer_url: string | null;
+  status: SandboxStatus;
+  error: string | null;
+  created_at: number;
+  completed_at: number | null;
+  elapsed_s: number;
+  has_screenshot: boolean;
+  summary: {
+    flow_count: number;
+    host_count: number;
+    hosts: HostSummary[];
+  };
+};
+
+export async function createSandboxSession(targetUrl: string): Promise<SandboxRecord> {
   const res = await fetch(`${apiBase()}/api/v1/sandbox/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -30,34 +57,26 @@ export async function createSandboxSession(targetUrl: string) {
     }
     throw new Error(detail);
   }
-  return res.json() as Promise<{
-    session_id: string;
-    kasm_viewer_url: string | null;
-    target_url: string;
-    kasm_id?: string | null;
-  }>;
+  return res.json();
 }
 
-export async function fetchSession(sessionId: string) {
+export async function fetchSession(sessionId: string): Promise<SandboxRecord> {
   const res = await fetch(`${apiBase()}/api/v1/sandbox/sessions/${sessionId}`, {
     cache: "no-store",
   });
-  if (!res.ok) {
-    throw new Error("Session not found");
-  }
-  return res.json() as Promise<{
-    session_id: string;
-    target_url: string;
-    kasm_viewer_url: string | null;
-    kasm_id: string | null;
-  }>;
+  if (!res.ok) throw new Error("Session not found");
+  return res.json();
 }
 
-export function eventsUrl(sessionId: string) {
+export function eventsUrl(sessionId: string): string {
   return `${apiBase()}/api/v1/sandbox/sessions/${sessionId}/events`;
 }
 
-export async function destroySandboxSession(sessionId: string) {
+export function screenshotUrl(sessionId: string): string {
+  return `${apiBase()}/api/v1/sandbox/sessions/${sessionId}/screenshot`;
+}
+
+export async function destroySandboxSession(sessionId: string): Promise<void> {
   await fetch(`${apiBase()}/api/v1/sandbox/sessions/${sessionId}/destroy`, {
     method: "POST",
   });

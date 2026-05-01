@@ -23,9 +23,6 @@ class Settings(BaseSettings):
 
     block_private_target_ips: bool = True
 
-    mock_kasm: bool = False
-    mock_kasm_viewer_url: str = ""
-
     def cors_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 

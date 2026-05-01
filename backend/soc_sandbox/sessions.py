@@ -14,8 +14,13 @@ class SandboxSession:
     target_url: str
     kasm_id: Optional[str] = None
     kasm_viewer_url: Optional[str] = None
+    status: str = "pending"  # pending | analyzing | completed | failed
+    error: Optional[str] = None
+    created_at: float = field(default_factory=lambda: __import__("time").time())
+    completed_at: Optional[float] = None
+    screenshot_png: Optional[bytes] = None
     recent_events: deque[dict[str, Any]] = field(
-        default_factory=lambda: deque(maxlen=500)
+        default_factory=lambda: deque(maxlen=2000)
     )
     subscriber_queues: list[asyncio.Queue[dict[str, Any]]] = field(
         default_factory=list

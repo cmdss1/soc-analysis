@@ -29,7 +29,7 @@ async def create_session(
         "environment": environment,
     }
 
-    url = f"{base}/api/public/create_session"
+    url = f"{base}/api/public/request_kasm"
     async with httpx.AsyncClient(timeout=60.0, verify=settings.kasm_verify_tls) as client:
         r = await client.post(url, json=payload)
         try:
@@ -81,6 +81,62 @@ async def get_kasm_status(
             raise KasmError("get_kasm_status unexpected shape")
 
         return body
+
+
+async def get_kasm_screenshot(
+    *,
+    kasm_id: str,
+    user_id: Optional[str] = None,
+    width: int = 1280,
+    height: int = 800,
+) -> Optional[bytes]:
+    """Returns PNG bytes for a screenshot of the current kasm desktop, or None if unavailable.
+
+    Kasm Developer API exposes /api/public/get_kasm_screenshot which returns
+    `{"kasm_frame": "<base64-png>"}` (newer builds) or `{"images": [{"image": "<b64>"}]}`.
+    We try several response shapes to stay version-tolerant.
+    """
+    import base64
+
+    base = settings.kasm_base_url.rstrip("/")
+    uid = user_id or settings.kasm_user_id
+    payload: dict[str, Any] = {
+        "api_key": settings.kasm_api_key,
+        "api_key_secret": settings.kasm_api_secret,
+        "user_id": uid,
+        "kasm_id": kasm_id,
+        "width": width,
+        "height": height,
+    }
+    url = f"{base}/api/public/get_kasm_screenshot"
+    async with httpx.AsyncClient(timeout=30.0, verify=settings.kasm_verify_tls) as client:
+        r = await client.post(url, json=payload)
+        if r.headers.get("content-type", "").startswith("image/"):
+            return r.content
+        try:
+            body = r.json()
+        except Exception:
+            return None
+        if r.status_code >= 400 or not isinstance(body, dict):
+            return None
+        for key in ("kasm_frame", "image", "screenshot", "kasm_screenshot"):
+            v = body.get(key)
+            if isinstance(v, str) and v:
+                try:
+                    return base64.b64decode(v)
+                except Exception:
+                    continue
+        images = body.get("images")
+        if isinstance(images, list) and images:
+            first = images[0]
+            if isinstance(first, dict):
+                v = first.get("image") or first.get("data")
+                if isinstance(v, str) and v:
+                    try:
+                        return base64.b64decode(v)
+                    except Exception:
+                        return None
+        return None
 
 
 async def destroy_session(*, kasm_id: str, user_id: Optional[str] = None) -> dict[str, Any]:
