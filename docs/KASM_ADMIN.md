@@ -47,9 +47,9 @@ See [`kasm-registry-repo/SOC_REGISTRY_SETUP.md`](kasm-registry-repo/SOC_REGISTRY
 2. Grant **`Users Auth Session`** + **`User`** (needed for [`POST /api/public/request_kasm`](https://docs.kasm.com/docs/developers/developer_api/index.html))
 3. Store key + secret in the orchestrator environment (`KASM_API_KEY`, `KASM_API_SECRET`)
 
-Resolve **`image_id`** via [`POST /api/public/get_images`](https://docs.kasm.com/docs/developers/developer_api/index.html) (or UI → workspace UUID).
+Resolve **`image_id`** via [`POST /api/public/get_images`](https://docs.kasm.com/docs/developers/developer_api/index.html) (or UI → workspace UUID). Use the exact **`image_id`** string returned — if provisioning fails with **`Invalid Request`**, confirm it still appears in **`get_images`** after workspace edits.
 
-Resolve **`user_id`** for the mapped analyst/service principal analogously (`get_users`, SSO-linked accounts, etc.).
+Resolve **`user_id`** for the mapped analyst/service principal analogously (`get_users`, SSO-linked accounts, etc.). The orchestrator sends **`user_id`** and **`image_id`** as **32-character lowercase hex** (hyphens optional in `.env`; they are stripped before calling Kasm).
 
 ## 5. Networking collectors vs workspaces
 

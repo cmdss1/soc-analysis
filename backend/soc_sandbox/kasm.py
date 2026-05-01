@@ -11,6 +11,17 @@ class KasmError(RuntimeError):
     pass
 
 
+def _compact_uuid(value: str) -> str:
+    """Kasm Developer API examples use 32-char lowercase hex (no hyphens)."""
+    s = (value or "").strip()
+    if not s:
+        return s
+    compact = s.replace("-", "").lower()
+    if len(compact) == 32 and all(c in "0123456789abcdef" for c in compact):
+        return compact
+    return s
+
+
 async def create_session(
     *,
     kasm_url: str,
@@ -20,13 +31,18 @@ async def create_session(
     if not base or not settings.kasm_api_key or not settings.kasm_api_secret:
         raise KasmError("Kasm is not configured (KASM_BASE_URL / keys / image / user)")
 
+    # Kasm forwards these into Docker; coerce to plain strings.
+    env_payload = {str(k): str(v) for k, v in environment.items()}
+
+    uid = _compact_uuid(settings.kasm_user_id)
+    img = _compact_uuid(settings.kasm_image_id)
     payload: dict[str, Any] = {
         "api_key": settings.kasm_api_key,
         "api_key_secret": settings.kasm_api_secret,
-        "user_id": settings.kasm_user_id,
-        "image_id": settings.kasm_image_id,
+        "user_id": uid,
+        "image_id": img,
         "kasm_url": kasm_url,
-        "environment": environment,
+        "environment": env_payload,
     }
 
     url = f"{base}/api/public/request_kasm"
@@ -45,6 +61,10 @@ async def create_session(
         if not isinstance(body, dict):
             raise KasmError("Unexpected Kasm response shape")
 
+        err = body.get("error_message") or body.get("error")
+        if err:
+            raise KasmError(f"Kasm request_kasm rejected: {err}")
+
         return body
 
 
@@ -56,7 +76,7 @@ async def get_kasm_status(
 ) -> dict[str, Any]:
     """Poll workspace provisioning (Developer API). Viewer URLs often appear only once operational."""
     base = settings.kasm_base_url.rstrip("/")
-    uid = user_id or settings.kasm_user_id
+    uid = _compact_uuid(user_id or settings.kasm_user_id)
     payload: dict[str, Any] = {
         "api_key": settings.kasm_api_key,
         "api_key_secret": settings.kasm_api_secret,
@@ -99,7 +119,7 @@ async def get_kasm_screenshot(
     import base64
 
     base = settings.kasm_base_url.rstrip("/")
-    uid = user_id or settings.kasm_user_id
+    uid = _compact_uuid(user_id or settings.kasm_user_id)
     payload: dict[str, Any] = {
         "api_key": settings.kasm_api_key,
         "api_key_secret": settings.kasm_api_secret,
@@ -142,7 +162,7 @@ async def get_kasm_screenshot(
 async def destroy_session(*, kasm_id: str, user_id: Optional[str] = None) -> dict[str, Any]:
     """Best-effort destroy; Kasm editions vary — caller should tolerate failures."""
     base = settings.kasm_base_url.rstrip("/")
-    uid = user_id or settings.kasm_user_id
+    uid = _compact_uuid(user_id or settings.kasm_user_id)
     payload = {
         "api_key": settings.kasm_api_key,
         "api_key_secret": settings.kasm_api_secret,
