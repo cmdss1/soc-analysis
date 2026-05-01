@@ -33,6 +33,21 @@
       "version": "1.18.x",
       "image": "cmdss1/kasm-chrome-mitm:1.0",
       "uncompressed_size_mb": 3200
+    },
+    {
+      "version": "1.19.x",
+      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "uncompressed_size_mb": 3200
+    },
+    {
+      "version": "1.20.x",
+      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "uncompressed_size_mb": 3200
+    },
+    {
+      "version": "1.21.x",
+      "image": "cmdss1/kasm-chrome-mitm:1.0",
+      "uncompressed_size_mb": 3200
     }
   ]
 }
