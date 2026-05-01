@@ -23,12 +23,39 @@ class CreateSessionBody(BaseModel):
 
 def _extract_kasm_viewer_raw(resp: dict[str, Any]) -> Optional[str]:
     """Kasm editions nest viewer paths under top-level or inside ``kasm``."""
-    v = resp.get("kasm_url")
-    if isinstance(v, str) and v.strip():
-        return v.strip()
+    priority_keys = (
+        "kasm_url",
+        "viewer_url",
+        "casting_url",
+        "cast_url",
+        "connection_url",
+    )
+    for key in priority_keys:
+        v = resp.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
     nested = resp.get("kasm")
     if isinstance(nested, dict):
-        for key in ("kasm_url", "casting_url", "cast_url"):
+        for key in priority_keys:
+            x = nested.get(key)
+            if isinstance(x, str) and x.strip():
+                return x.strip()
+    for blob in (resp, nested if isinstance(nested, dict) else None):
+        if not isinstance(blob, dict):
+            continue
+        for val in blob.values():
+            if isinstance(val, str) and "/#/connect/kasm/" in val:
+                return val.strip()
+    return None
+
+
+def _extract_kasm_id(resp: dict[str, Any]) -> Optional[str]:
+    kid = resp.get("kasm_id")
+    if isinstance(kid, str) and kid.strip():
+        return kid.strip()
+    nested = resp.get("kasm")
+    if isinstance(nested, dict):
+        for key in ("kasm_id", "id", "session_id"):
             x = nested.get(key)
             if isinstance(x, str) and x.strip():
                 return x.strip()
@@ -51,7 +78,7 @@ def _absolute_kasm_viewer(viewer: Optional[str]) -> Optional[str]:
     return viewer
 
 
-async def _poll_until_kasm_viewer(kasm_id: str, *, attempts: int = 24, delay_s: float = 2.0) -> Optional[str]:
+async def _poll_until_kasm_viewer(kasm_id: str, *, attempts: int = 45, delay_s: float = 2.0) -> Optional[str]:
     """Kasm omits kasm_url until operational_status is running — poll get_kasm_status."""
     for attempt in range(attempts):
         if attempt > 0:
@@ -71,6 +98,7 @@ async def _poll_until_kasm_viewer(kasm_id: str, *, attempts: int = 24, delay_s: 
             break
     return None
 
+
 @router.post("/sessions")
 async def start_session(body: CreateSessionBody) -> dict[str, Any]:
     try:
@@ -89,19 +117,25 @@ async def start_session(body: CreateSessionBody) -> dict[str, Any]:
     }
 
     try:
-        if settings.mock_kasm:
-            rec.kasm_id = "mock-kasm-id"
-            rec.kasm_viewer_url = settings.mock_kasm_viewer_url or "about:blank"
-        else:
-            resp = await create_session(kasm_url=url, environment=env)
-            kid = resp.get("kasm_id")
-            if not kid and isinstance(resp.get("kasm"), dict):
-                kid = resp["kasm"].get("kasm_id")
-            viewer = _extract_kasm_viewer_raw(resp)
-            if not viewer and kid:
-                viewer = await _poll_until_kasm_viewer(kid)
-            rec.kasm_id = kid
-            rec.kasm_viewer_url = _absolute_kasm_viewer(viewer)
+        resp = await create_session(kasm_url=url, environment=env)
+        kid = _extract_kasm_id(resp)
+        if not kid:
+            registry.discard_record(rec)
+            err = (
+                resp.get("error_message")
+                or resp.get("error")
+                or resp.get("message")
+                or "no kasm_id in response"
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Kasm request_kasm failed: {err} | response_keys={list(resp.keys())}",
+            )
+        viewer = _extract_kasm_viewer_raw(resp)
+        if not viewer and kid:
+            viewer = await _poll_until_kasm_viewer(kid)
+        rec.kasm_id = kid
+        rec.kasm_viewer_url = _absolute_kasm_viewer(viewer)
     except KasmError as e:
         registry.discard_record(rec)
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -120,13 +154,9 @@ async def get_session(session_id: str) -> dict[str, Any]:
     rec = registry.get(session_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Unknown session")
-    if (
-        not settings.mock_kasm
-        and rec.kasm_id
-        and rec.kasm_id != "mock-kasm-id"
-        and not rec.kasm_viewer_url
-    ):
-        raw = await _poll_until_kasm_viewer(rec.kasm_id, attempts=15, delay_s=2.0)
+    needs_poll = bool(rec.kasm_id and not rec.kasm_viewer_url)
+    if needs_poll:
+        raw = await _poll_until_kasm_viewer(rec.kasm_id, attempts=45, delay_s=2.0)
         if raw:
             rec.kasm_viewer_url = _absolute_kasm_viewer(raw)
     return {
@@ -172,8 +202,8 @@ async def stop_session(session_id: str) -> dict[str, Any]:
     rec = registry.get(session_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Unknown session")
-    if settings.mock_kasm or not rec.kasm_id or rec.kasm_id == "mock-kasm-id":
-        return {"ok": True, "detail": "mock or no kasm id"}
+    if not rec.kasm_id:
+        return {"ok": True, "detail": "no kasm id"}
     try:
         out = await destroy_session(kasm_id=rec.kasm_id)
         return {"ok": True, "kasm": out}
