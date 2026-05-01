@@ -42,3 +42,4 @@ ENV MITM_LISTEN_PORT=8080 \
 USER 1000
 
 ENTRYPOINT ["/usr/local/bin/kasm-mitm-entrypoint.sh"]
+CMD ["--wait"]

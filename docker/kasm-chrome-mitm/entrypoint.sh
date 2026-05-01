@@ -59,8 +59,10 @@ fi
 
 trap - EXIT INT TERM
 
-echo "[kasm-mitm] Delegating to Kasm container startup..."
-if [[ -x /dockerstartup/kasm_entrypoint.sh ]]; then
-  exec /dockerstartup/kasm_entrypoint.sh "$@"
+echo "[kasm-mitm] Delegating to Kasm container startup chain..."
+# Upstream kasmweb/core ENTRYPOINT chain: default_profile -> vnc_startup -> kasm_startup, CMD=--wait.
+# We replaced the ENTRYPOINT, so we must reproduce the full chain (and default --wait) ourselves.
+if [[ $# -eq 0 ]]; then
+  set -- --wait
 fi
-exec /dockerstartup/kasm_startup.sh "$@"
+exec /dockerstartup/kasm_default_profile.sh /dockerstartup/vnc_startup.sh /dockerstartup/kasm_startup.sh "$@"
