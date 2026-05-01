@@ -21,6 +21,20 @@ class CreateSessionBody(BaseModel):
     url: str = Field(..., min_length=4, max_length=8192)
 
 
+def _extract_kasm_viewer_raw(resp: dict[str, Any]) -> Optional[str]:
+    """Kasm editions nest viewer paths under top-level or inside ``kasm``."""
+    v = resp.get("kasm_url")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    nested = resp.get("kasm")
+    if isinstance(nested, dict):
+        for key in ("kasm_url", "casting_url", "cast_url"):
+            x = nested.get(key)
+            if isinstance(x, str) and x.strip():
+                return x.strip()
+    return None
+
+
 def _absolute_kasm_viewer(viewer: Optional[str]) -> Optional[str]:
     if not viewer:
         return None
@@ -32,6 +46,8 @@ def _absolute_kasm_viewer(viewer: Optional[str]) -> Optional[str]:
     origin = f"{base.scheme}://{base.netloc}"
     if viewer.startswith("/"):
         return origin + viewer
+    if viewer.startswith("#"):
+        return f"{origin}/{viewer}"
     return viewer
 
 
@@ -61,7 +77,7 @@ async def start_session(body: CreateSessionBody) -> dict[str, Any]:
             kid = resp.get("kasm_id")
             if not kid and isinstance(resp.get("kasm"), dict):
                 kid = resp["kasm"].get("kasm_id")
-            viewer = resp.get("kasm_url")
+            viewer = _extract_kasm_viewer_raw(resp)
             rec.kasm_id = kid
             rec.kasm_viewer_url = _absolute_kasm_viewer(viewer)
     except KasmError as e:

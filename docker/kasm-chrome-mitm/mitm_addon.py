@@ -85,11 +85,11 @@ def _post_event(event: dict[str, Any]) -> None:
     try:
         urllib.request.urlopen(req, timeout=5)
     except urllib.error.HTTPError as e:
-        ctx.log.debug(f"soc collector HTTPError: {e.code} {e.reason}")
+        ctx.log.warn(f"SOC collector HTTPError: {e.code} {e.reason} url={COLLECTOR_URL!r}")
     except urllib.error.URLError as e:
-        ctx.log.debug(f"soc collector URLError: {e.reason}")
+        ctx.log.warn(f"SOC collector URLError: {e.reason} url={COLLECTOR_URL!r}")
     except Exception as e:
-        ctx.log.debug(f"soc collector error: {e}")
+        ctx.log.warn(f"SOC collector error: {e} url={COLLECTOR_URL!r}")
 
 
 def emit(event: dict[str, Any]) -> None:
