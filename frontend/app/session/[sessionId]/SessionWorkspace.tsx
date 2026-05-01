@@ -362,7 +362,7 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
                 title="Kasm session"
                 src={rec.kasm_viewer_url}
                 allow="clipboard-read; clipboard-write; fullscreen; autoplay"
-                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-pointer-lock allow-downloads"
+                {...({ credentialless: "" } as Record<string, string>)}
               />
             ) : view === "snapshot" && rec?.has_screenshot ? (
               <img
@@ -390,9 +390,8 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
           </div>
           {view === "live" && rec?.kasm_viewer_url ? (
             <div className="rep-shot-foot">
-              Seeing the Kasm dashboard or "Uautorisert tilgang"? Your browser
-              has a Kasm admin cookie that overrides this iframe's per-session
-              JWT. Open this page in an <strong>incognito window</strong>, or use{" "}
+              Iframe runs <code>credentialless</code> — no cookies sent, JWT-only
+              auth (Chrome/Edge 110+). On older browsers, fall back to{" "}
               <a href={rec.kasm_viewer_url} target="_blank" rel="noreferrer">
                 Open in new tab
               </a>

@@ -12,6 +12,19 @@ const nextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        // Required for `<iframe credentialless>` so Kasm cookies are NOT
+        // sent inside the embedded workspace — only the JWT in the URL.
+        source: "/:path*",
+        headers: [
+          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
