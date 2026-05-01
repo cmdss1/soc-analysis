@@ -33,8 +33,9 @@ COPY chrome-policies/managed/mitm-proxy.json /etc/chromium/policies/managed/mitm
 
 COPY mitm_addon.py /opt/soc/mitm_addon.py
 COPY entrypoint.sh /usr/local/bin/kasm-mitm-entrypoint.sh
+COPY kasm-mitm-nss-trust.sh /usr/local/bin/kasm-mitm-nss-trust.sh
 
-RUN chmod +x /usr/local/bin/kasm-mitm-entrypoint.sh /opt/soc/mitm_addon.py
+RUN chmod +x /usr/local/bin/kasm-mitm-entrypoint.sh /usr/local/bin/kasm-mitm-nss-trust.sh /opt/soc/mitm_addon.py
 
 # Writable by kasm-user (UID 1000). Stock kasmweb/chrome never runs workspace sessions as root.
 ENV MITM_LISTEN_PORT=8080 \

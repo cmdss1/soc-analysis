@@ -45,34 +45,16 @@ trap cleanup EXIT INT TERM
 
 wait_port "$MITM_PORT" || echo "[kasm-mitm] WARN: mitm port not accepting connections yet"
 
+# NSS trust for Chrome is installed in kasm-mitm-nss-trust.sh **after**
+# kasm_default_profile.sh merges the template home — otherwise .pki/nssdb is overwritten.
 if wait_ca; then
   CA_PEM="${MITM_CONF}/mitmproxy-ca-cert.pem"
-
-  # System trust (only if root). Chrome on Linux ignores this, but other tools may use it.
   if [[ $(id -u) -eq 0 ]]; then
     cp "$CA_PEM" /usr/local/share/ca-certificates/soc-mitm.crt 2>/dev/null || true
     update-ca-certificates 2>/dev/null || true
   fi
-
-  # Chrome on Linux trusts certs from the user's NSS DB (~/.pki/nssdb), NOT the system bundle.
-  # Without this, every HTTPS site shows NET::ERR_CERT_AUTHORITY_INVALID and no flows reach mitm.
-  if command -v certutil >/dev/null 2>&1; then
-    NSSDB="${HOME:-/home/kasm-user}/.pki/nssdb"
-    mkdir -p "$NSSDB"
-    if [[ ! -f "$NSSDB/cert9.db" ]]; then
-      certutil -d "sql:$NSSDB" -N --empty-password >/dev/null 2>&1 || true
-    fi
-    certutil -d "sql:$NSSDB" -D -n "soc-mitm" >/dev/null 2>&1 || true
-    if certutil -d "sql:$NSSDB" -A -t "C,," -n "soc-mitm" -i "$CA_PEM"; then
-      echo "[kasm-mitm] Installed mitmproxy CA into Chrome NSS DB at $NSSDB"
-    else
-      echo "[kasm-mitm] WARN: failed to install CA into NSS DB ($NSSDB)"
-    fi
-  else
-    echo "[kasm-mitm] WARN: certutil not found; Chrome will reject mitm TLS"
-  fi
 else
-  echo "[kasm-mitm] WARN: mitmproxy CA not found; TLS interception will fail in browser"
+  echo "[kasm-mitm] WARN: mitmproxy CA not found yet; NSS trust hook will retry"
 fi
 
 trap - EXIT INT TERM
@@ -83,4 +65,8 @@ echo "[kasm-mitm] Delegating to Kasm container startup chain..."
 if [[ $# -eq 0 ]]; then
   set -- --wait
 fi
-exec /dockerstartup/kasm_default_profile.sh /dockerstartup/vnc_startup.sh /dockerstartup/kasm_startup.sh "$@"
+exec /dockerstartup/kasm_default_profile.sh \
+  /usr/local/bin/kasm-mitm-nss-trust.sh \
+  /dockerstartup/vnc_startup.sh \
+  /dockerstartup/kasm_startup.sh \
+  "$@"
