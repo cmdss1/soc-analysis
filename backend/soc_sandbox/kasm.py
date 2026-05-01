@@ -48,6 +48,41 @@ async def create_session(
         return body
 
 
+async def get_kasm_status(
+    *,
+    kasm_id: str,
+    user_id: Optional[str] = None,
+    skip_agent_check: bool = False,
+) -> dict[str, Any]:
+    """Poll workspace provisioning (Developer API). Viewer URLs often appear only once operational."""
+    base = settings.kasm_base_url.rstrip("/")
+    uid = user_id or settings.kasm_user_id
+    payload: dict[str, Any] = {
+        "api_key": settings.kasm_api_key,
+        "api_key_secret": settings.kasm_api_secret,
+        "user_id": uid,
+        "kasm_id": kasm_id,
+        "skip_agent_check": skip_agent_check,
+    }
+    url = f"{base}/api/public/get_kasm_status"
+    async with httpx.AsyncClient(timeout=45.0, verify=settings.kasm_verify_tls) as client:
+        r = await client.post(url, json=payload)
+        try:
+            body = r.json()
+        except Exception as exc:
+            raise KasmError(f"get_kasm_status non-JSON: {r.status_code} {r.text[:500]}") from exc
+
+        if r.status_code >= 400:
+            raise KasmError(
+                f"get_kasm_status error {r.status_code}: {body if isinstance(body, dict) else r.text[:500]}"
+            )
+
+        if not isinstance(body, dict):
+            raise KasmError("get_kasm_status unexpected shape")
+
+        return body
+
+
 async def destroy_session(*, kasm_id: str, user_id: Optional[str] = None) -> dict[str, Any]:
     """Best-effort destroy; Kasm editions vary — caller should tolerate failures."""
     base = settings.kasm_base_url.rstrip("/")

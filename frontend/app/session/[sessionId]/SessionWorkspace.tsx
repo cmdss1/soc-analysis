@@ -229,10 +229,17 @@ export default function SessionWorkspace({
             ) : (
               <div style={{ padding: 24, color: "var(--muted)", lineHeight: 1.6 }}>
                 <p>
-                  No viewer URL yet (mock mode uses <code>about:blank</code>). When
-                  Kasm returns a session link, it appears here if{" "}
-                  <code>X-Frame-Options</code> allows embedding; otherwise use{" "}
-                  <strong>Open Kasm in new tab</strong>.
+                  No viewer URL yet. Kasm often omits the link until the session is{" "}
+                  <strong>running</strong> — wait a few seconds and refresh this page, or
+                  check that <code>KASM_BASE_URL</code> matches your server and the backend
+                  can call <code>get_kasm_status</code>.
+                </p>
+                <p style={{ marginTop: 12 }}>
+                  When a link is returned, it appears here if framing is allowed; otherwise
+                  use <strong>Open Kasm in new tab</strong>.{" "}
+                  <span style={{ opacity: 0.85 }}>
+                    (Mock mode uses <code>about:blank</code>.)
+                  </span>
                 </p>
               </div>
             )}
