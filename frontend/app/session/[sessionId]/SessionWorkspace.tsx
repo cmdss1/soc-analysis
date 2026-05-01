@@ -10,6 +10,9 @@ import {
   screenshotUrl,
   type SandboxRecord,
 } from "@/lib/api";
+import KasmLiveEmbed, {
+  kasmEmbedSupportsCredentialless,
+} from "./KasmLiveEmbed";
 
 type MitmEvent = {
   type?: string;
@@ -129,6 +132,11 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
   const [filter, setFilter] = useState<string>("");
   const [shotV, setShotV] = useState(0);
   const [view, setView] = useState<"live" | "snapshot">("live");
+  const [embedSupported, setEmbedSupported] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setEmbedSupported(kasmEmbedSupportsCredentialless());
+  }, []);
 
   // Poll session metadata until completed/failed
   useEffect(() => {
@@ -357,13 +365,35 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
             </div>
           </div>
           <div className="rep-shot-body">
-            {view === "live" && rec?.kasm_viewer_url ? (
-              <iframe
-                title="Kasm session"
-                src={rec.kasm_viewer_url}
-                allow="clipboard-read; clipboard-write; fullscreen; autoplay"
-                {...({ credentialless: "" } as Record<string, string>)}
-              />
+            {view === "live" && rec?.kasm_viewer_url && embedSupported === true ? (
+              <KasmLiveEmbed src={rec.kasm_viewer_url} />
+            ) : view === "live" &&
+              rec?.kasm_viewer_url &&
+              embedSupported === false ? (
+              <div className="rep-shot-skel rep-shot-embed-fallback">
+                <p>
+                  <strong>Embedded desktop needs Chromium.</strong> Firefox / Floorp
+                  cannot isolate Kasm cookies inside an iframe, so you see the admin UI
+                  or &quot;Uautorisert tilgang til økt&quot; instead of the sandbox.
+                </p>
+                <p className="muted">
+                  Use <strong>Chrome</strong> or <strong>Edge</strong> for this page, or
+                  open the workspace in its own tab (JWT-only, works in every browser).
+                </p>
+                <a
+                  className="btn-primary-block"
+                  href={rec.kasm_viewer_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open sandbox workspace ↗
+                </a>
+              </div>
+            ) : view === "live" && rec?.kasm_viewer_url && embedSupported === null ? (
+              <div className="rep-shot-skel">
+                <div className="spinner" />
+                <p className="muted">Preparing viewer…</p>
+              </div>
             ) : view === "snapshot" && rec?.has_screenshot ? (
               <img
                 key={shotV}
@@ -388,14 +418,19 @@ export default function SessionWorkspace({ sessionId }: { sessionId: string }) {
               </div>
             )}
           </div>
-          {view === "live" && rec?.kasm_viewer_url ? (
+          {view === "live" && rec?.kasm_viewer_url && embedSupported === true ? (
             <div className="rep-shot-foot">
-              Iframe runs <code>credentialless</code> — no cookies sent, JWT-only
-              auth (Chrome/Edge 110+). On older browsers, fall back to{" "}
+              Embedded with <code>credentialless</code> (no Kasm cookies — JWT only).
+              Problems?{" "}
               <a href={rec.kasm_viewer_url} target="_blank" rel="noreferrer">
                 Open in new tab
               </a>
               .
+            </div>
+          ) : view === "live" && rec?.kasm_viewer_url && embedSupported === false ? (
+            <div className="rep-shot-foot">
+              Floorp/Firefox? Use <strong>Open sandbox workspace</strong> while flows
+              stream here.
             </div>
           ) : null}
         </section>

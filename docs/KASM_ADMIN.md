@@ -67,6 +67,7 @@ Firewall **`POST /api/v1/collector/ingest`** so only workspace egress ranges may
 
 - **Idle/expiry**: Align sandbox TTL with SOC retention policies; optionally hook **`destroy_kasm`** from UI/session teardown flows ([`/api/public/destroy_kasm`](https://docs.kasm.com/docs/developers/developer_api/index.html)).
 - **Embedding**: Many SSO setups ship restrictive **`Content-Security-Policy`** / framing headers—the SOC UI supports launching Kasm in a **new tab** when iframe embedding fails.
+- **SOC UI browser**: **Chrome / Edge** can embed the workspace using **`credentialless`** iframes (no Kasm admin cookies → JWT works). **Firefox / Floorp** cannot — use **Open sandbox workspace** so the session opens in a separate tab (still correct for investigations).
 - **Pinned TLS**: Sites using certificate pinning may refuse TLS interception even with the injected MITM CA; flows still appear with degraded fidelity—communicate this expectation to analysts.
 
 ## 7. Join fails (“connection error” / streaming toast)
