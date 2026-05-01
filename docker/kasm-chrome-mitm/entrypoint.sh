@@ -36,11 +36,12 @@ mitmdump \
   --scripts /opt/soc/mitm_addon.py \
   &
 MITM_PID=$!
+disown "$MITM_PID" 2>/dev/null || true
 
 cleanup() {
   kill "$MITM_PID" 2>/dev/null || true
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 wait_port "$MITM_PORT" || echo "[kasm-mitm] WARN: mitm port not accepting connections yet"
 
@@ -52,5 +53,10 @@ else
   echo "[kasm-mitm] WARN: mitmproxy CA not found; TLS interception may warn in-browser"
 fi
 
-echo "[kasm-mitm] Delegating to Kasm startup..."
+trap - EXIT INT TERM
+
+echo "[kasm-mitm] Delegating to Kasm container startup..."
+if [[ -x /dockerstartup/kasm_entrypoint.sh ]]; then
+  exec /dockerstartup/kasm_entrypoint.sh "$@"
+fi
 exec /dockerstartup/kasm_startup.sh "$@"

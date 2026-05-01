@@ -1,3 +1,4 @@
+# Match Kasm Workspaces release on your server (Admin → About). Wrong minor = broken sessions/streaming.
 ARG KASM_CHROME_TAG=1.15.0
 FROM kasmweb/chrome:${KASM_CHROME_TAG}
 
@@ -34,11 +35,6 @@ COPY entrypoint.sh /usr/local/bin/kasm-mitm-entrypoint.sh
 RUN chmod +x /usr/local/bin/kasm-mitm-entrypoint.sh /opt/soc/mitm_addon.py
 
 ENV MITM_LISTEN_PORT=8080 \
-    MITM_CONFDIR=/etc/mitmproxy/conf \
-    http_proxy=http://127.0.0.1:8080 \
-    https_proxy=http://127.0.0.1:8080 \
-    HTTP_PROXY=http://127.0.0.1:8080 \
-    HTTPS_PROXY=http://127.0.0.1:8080 \
-    NO_PROXY=localhost,127.0.0.1
+    MITM_CONFDIR=/etc/mitmproxy/conf
 
 ENTRYPOINT ["/usr/local/bin/kasm-mitm-entrypoint.sh"]
