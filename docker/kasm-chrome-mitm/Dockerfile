@@ -1,20 +1,24 @@
 ARG KASM_CHROME_TAG=1.15.0
 FROM kasmweb/chrome:${KASM_CHROME_TAG}
 
+# Official Linux bundle (bundled CPython + wheels). Avoids pip on Kasm's older system Python.
+ARG MITMPROXY_VERSION=11.0.2
+
 USER root
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        python3 \
-        python3-venv \
         ca-certificates \
+        curl \
+    && mkdir -p /opt/mitmproxy-bin \
+    && curl -fsSL \
+        "https://downloads.mitmproxy.org/${MITMPROXY_VERSION}/mitmproxy-${MITMPROXY_VERSION}-linux-x86_64.tar.gz" \
+        -o /tmp/mitm.tgz \
+    && tar -xzf /tmp/mitm.tgz -C /opt/mitmproxy-bin \
+    && ln -sf /opt/mitmproxy-bin/mitmdump /usr/local/bin/mitmdump \
+    && ln -sf /opt/mitmproxy-bin/mitmproxy /usr/local/bin/mitmproxy \
+    && rm /tmp/mitm.tgz \
     && rm -rf /var/lib/apt/lists/*
-
-RUN python3 -m venv /opt/mitm/venv \
-    && /opt/mitm/venv/bin/pip install --no-cache-dir "mitmproxy>=10.3.0,<12"
-
-RUN ln -sf /opt/mitm/venv/bin/mitmdump /usr/local/bin/mitmdump \
-    && ln -sf /opt/mitm/venv/bin/mitmproxy /usr/local/bin/mitmproxy
 
 RUN mkdir -p /etc/opt/chrome/policies/managed \
     /etc/chromium/policies/managed \
