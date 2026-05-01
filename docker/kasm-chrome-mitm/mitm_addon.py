@@ -58,12 +58,36 @@ def _tls_meta(flow: http.HTTPFlow) -> dict[str, Any]:
     conn = flow.server_conn
     if not conn:
         return {}
+    alpn = getattr(conn, "alpn", None)
+    if isinstance(alpn, (bytes, bytearray)):
+        try:
+            alpn = alpn.decode("ascii", errors="replace")
+        except Exception:
+            alpn = str(alpn)
     return {
         "tls_established": bool(getattr(conn, "tls_established", False)),
         "tls_version": getattr(conn, "tls_version", None),
-        "alpn": getattr(conn, "alpn", None),
+        "alpn": alpn,
         "sni": getattr(conn, "sni", None),
     }
+
+
+def _server_endpoint(flow: http.HTTPFlow) -> dict[str, Any]:
+    """Emit resolved IP separately from requested host so the SOC UI can show both."""
+    conn = flow.server_conn
+    out: dict[str, Any] = {"server_ip": None, "server_port": None, "server_host": None}
+    if not conn:
+        return out
+    addr = getattr(conn, "address", None)
+    if isinstance(addr, (list, tuple)) and len(addr) >= 2:
+        out["server_host"] = addr[0]
+        out["server_port"] = addr[1]
+    peer = getattr(conn, "peername", None)
+    if isinstance(peer, (list, tuple)) and len(peer) >= 2:
+        out["server_ip"] = peer[0]
+        if not out["server_port"]:
+            out["server_port"] = peer[1]
+    return out
 
 
 def _post_event(event: dict[str, Any]) -> None:
@@ -103,6 +127,7 @@ class SocCollectorAddon:
         )
 
     def http_connect(self, flow: http.HTTPFlow) -> None:
+        endpoint = _server_endpoint(flow)
         emit(
             {
                 "type": "http_connect",
@@ -111,6 +136,7 @@ class SocCollectorAddon:
                 "client_ip": flow.client_conn.peername[0]
                 if flow.client_conn.peername
                 else None,
+                **endpoint,
             }
         )
 
@@ -143,6 +169,7 @@ class SocCollectorAddon:
         raw = flow.response.get_content() or b""
         blen, preview = _truncate_text(raw)
         hdrs = {k: v for k, v in flow.response.headers.items()}
+        endpoint = _server_endpoint(flow)
         event: dict[str, Any] = {
             "type": "http_response",
             "request_id": rid,
@@ -151,11 +178,10 @@ class SocCollectorAddon:
             "headers": hdrs,
             "body_len": blen,
             "body_preview": preview,
+            "content_type": flow.response.headers.get("content-type"),
             "tls": _tls_meta(flow),
             "server_cert": _cert_summary(flow),
-            "server_address": flow.server_conn.address
-            if flow.server_conn and flow.server_conn.address
-            else None,
+            **endpoint,
         }
         emit(event)
 
